@@ -1,0 +1,11 @@
+version: '3'
+services:
+  hots-tracker:
+    build: .  # 使用当前目录构建
+    image: hots-tracker:latest
+    container_name: hots-tracker
+    restart: unless-stopped
+    ports:
+      - "58848:8000" # 外部端口8088，你可以自己改
+    volumes:
+      - ./data:/data # 将数据库持久化到本地目录的data文件夹
