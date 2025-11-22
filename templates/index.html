@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>风暴英雄战绩记录</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 图标库 -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body { background-color: #111827; color: #e5e7eb; }
+        .nexus-gradient { background: linear-gradient(to right, #4f46e5, #9333ea); }
+        .card-win { border-left: 4px solid #22c55e; background-color: #1f2937; }
+        .card-loss { border-left: 4px solid #ef4444; background-color: #1f2937; }
+    </style>
+</head>
+<body>
+    <div id="app" class="min-h-screen pb-10">
+        <!-- 顶部导航 -->
+        <nav class="nexus-gradient p-4 shadow-lg mb-6">
+            <div class="max-w-2xl mx-auto flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <i class="ph ph-sword"></i> 风暴英雄战绩本
+                </h1>
+                <div class="text-sm text-white/80">
+                    总场次: {{ totalGames }} | 总胜率: {{ totalWinRate }}%
+                </div>
+            </div>
+        </nav>
+
+        <div class="max-w-2xl mx-auto px-4">
+            
+            <!-- 输入区域 -->
+            <div class="bg-gray-800 p-4 rounded-lg shadow-md mb-8 border border-gray-700">
+                <div class="flex flex-col gap-3">
+                    <textarea 
+                        v-model="newNote" 
+                        placeholder="对局特点（可选，例如：吉安娜伤害爆炸，翻盘局）" 
+                        class="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-purple-500 focus:outline-none"
+                        rows="2"
+                    ></textarea>
+                    
+                    <div class="flex gap-4">
+                        <div class="flex-1 flex flex-col gap-1">
+                            <label class="text-xs text-gray-400">时间 (默认现在)</label>
+                            <input type="datetime-local" v-model="customTime" class="bg-gray-900 text-white p-2 rounded border border-gray-700 w-full">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mt-2">
+                        <button @click="addRecord('win')" class="bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold transition flex justify-center items-center gap-2">
+                            <i class="ph ph-check-circle"></i> 胜利
+                        </button>
+                        <button @click="addRecord('loss')" class="bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-bold transition flex justify-center items-center gap-2">
+                            <i class="ph ph-x-circle"></i> 失败
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 列表区域 -->
+            <div v-if="loading" class="text-center py-10 text-gray-500">加载中...</div>
+            
+            <div v-for="(group, date) in groupedRecords" :key="date" class="mb-8">
+                <!-- 日期分割头 -->
+                <div class="flex justify-between items-end mb-3 border-b border-gray-700 pb-1">
+                    <h2 class="text-xl font-bold text-purple-400">{{ date }}</h2>
+                    <div class="text-sm">
+                        <span class="text-green-400">{{ group.wins }}胜</span> / 
+                        <span class="text-red-400">{{ group.losses }}负</span>
+                        <span class="ml-2 bg-gray-700 px-2 py-0.5 rounded text-white text-xs">{{ group.winRate }}% 胜率</span>
+                    </div>
+                </div>
+
+                <!-- 卡片列表 -->
+                <div class="space-y-3">
+                    <div v-for="record in group.list" :key="record.id" 
+                         :class="['p-4 rounded shadow flex justify-between items-start group', record.result === 'win' ? 'card-win' : 'card-loss']">
+                        
+                        <div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span :class="['font-bold text-lg', record.result === 'win' ? 'text-green-500' : 'text-red-500']">
+                                    {{ record.result === 'win' ? 'VICTORY' : 'DEFEAT' }}
+                                </span>
+                                <span class="text-xs text-gray-500">{{ formatTime(record.created_at) }}</span>
+                            </div>
+                            <p class="text-gray-300 text-sm whitespace-pre-wrap">{{ record.note || '无备注' }}</p>
+                        </div>
+
+                        <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                            <button @click="deleteRecord(record.id)" class="text-gray-500 hover:text-red-500" title="删除">
+                                <i class="ph ph-trash text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="records.length === 0 && !loading" class="text-center text-gray-500 py-10">
+                暂无战绩，快去时空枢纽战斗吧！
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const records = ref([]);
+                const newNote = ref('');
+                const customTime = ref('');
+                const loading = ref(true);
+
+                // 获取数据
+                const fetchRecords = async () => {
+                    loading.value = true;
+                    const res = await fetch('/api/records');
+                    records.value = await res.json();
+                    loading.value = false;
+                };
+
+                // 添加数据
+                const addRecord = async (result) => {
+                    const payload = {
+                        result: result,
+                        note: newNote.value,
+                        created_at: customTime.value ? new Date(customTime.value).toISOString() : new Date().toISOString()
+                    };
+                    
+                    await fetch('/api/records', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    newNote.value = '';
+                    customTime.value = '';
+                    await fetchRecords();
+                };
+
+                // 删除数据
+                const deleteRecord = async (id) => {
+                    if(!confirm('确定删除这条记录吗？')) return;
+                    await fetch(`/api/records/${id}`, { method: 'DELETE' });
+                    await fetchRecords();
+                };
+
+                // 日期格式化 helper
+                const formatDate = (isoStr) => {
+                    const d = new Date(isoStr);
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                };
+
+                const formatTime = (isoStr) => {
+                    const d = new Date(isoStr);
+                    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                };
+
+                // 计算属性：按天分组
+                const groupedRecords = computed(() => {
+                    const groups = {};
+                    
+                    records.value.forEach(r => {
+                        const dateKey = formatDate(r.created_at);
+                        if (!groups[dateKey]) {
+                            groups[dateKey] = { list: [], wins: 0, losses: 0, winRate: 0 };
+                        }
+                        groups[dateKey].list.push(r);
+                        if (r.result === 'win') groups[dateKey].wins++;
+                        else groups[dateKey].losses++;
+                    });
+
+                    // 计算胜率
+                    for (const date in groups) {
+                        const g = groups[date];
+                        const total = g.wins + g.losses;
+                        g.winRate = total > 0 ? Math.round((g.wins / total) * 100) : 0;
+                    }
+
+                    return groups; // 对象也是按插入顺序遍历的(大部分浏览器)，但最好由后端排序
+                });
+
+                // 总统计
+                const totalGames = computed(() => records.value.length);
+                const totalWinRate = computed(() => {
+                    if (records.value.length === 0) return 0;
+                    const wins = records.value.filter(r => r.result === 'win').length;
+                    return Math.round((wins / records.value.length) * 100);
+                });
+
+                onMounted(() => {
+                    fetchRecords();
+                });
+
+                return {
+                    records, newNote, customTime, addRecord, deleteRecord,
+                    groupedRecords, formatTime, loading, totalGames, totalWinRate
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
